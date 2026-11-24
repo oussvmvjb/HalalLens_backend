@@ -38,9 +38,11 @@ def test_load_pipeline_disables_mkldnn(monkeypatch) -> None:
     assert arguments["device"] == "cpu"
     assert arguments["enable_mkldnn"] is False
     assert arguments["text_recognition_model_name"] == "latin_PP-OCRv5_mobile_rec"
+    assert arguments["use_doc_orientation_classify"] is False
+    assert arguments["use_textline_orientation"] is False
 
 
-def test_load_chinese_pipeline_uses_paddleocr_37_server_models(
+def test_load_chinese_pipeline_uses_mobile_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     arguments: dict[str, object] = {}
@@ -58,8 +60,8 @@ def test_load_chinese_pipeline_uses_paddleocr_37_server_models(
     finally:
         _load_pipeline.cache_clear()
 
-    assert arguments["text_detection_model_name"] == "PP-OCRv5_server_det"
-    assert arguments["text_recognition_model_name"] == "PP-OCRv5_server_rec"
+    assert arguments["text_detection_model_name"] == "PP-OCRv4_mobile_det"
+    assert arguments["text_recognition_model_name"] == "PP-OCRv4_mobile_rec"
     assert arguments["device"] == "cpu"
     assert arguments["enable_mkldnn"] is False
 
@@ -89,7 +91,7 @@ def test_load_pipeline_initializes_and_caches_a_model_once(
     assert calls == 1
 
 
-def test_ocr_runtime_initializes_models_once_and_reinitializes_after_close(
+def test_ocr_runtime_loads_only_requested_models_and_reinitializes_after_close(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[str] = []
@@ -107,21 +109,29 @@ def test_ocr_runtime_initializes_models_once_and_reinitializes_after_close(
     try:
         runtime.initialize()
         runtime.initialize()
+        assert calls == []
+
         runtime.extract_text(b"image", languages=["zh_CN"])
-        assert calls == [
-            "latin_PP-OCRv5_mobile_rec",
-            "arabic_PP-OCRv5_mobile_rec",
-            "PP-OCRv5_server_rec",
-        ]
+        runtime.extract_text(b"image", languages=["zh_CN"])
+        assert calls == ["PP-OCRv4_mobile_rec"]
+
+        runtime.extract_text(b"image", languages=["ar"])
+        assert calls == ["PP-OCRv4_mobile_rec", "arabic_PP-OCRv5_mobile_rec"]
 
         runtime.close()
         runtime.initialize()
-        assert len(calls) == 6
+        assert calls == ["PP-OCRv4_mobile_rec", "arabic_PP-OCRv5_mobile_rec"]
+        runtime.extract_text(b"image", languages=["zh_CN"])
+        assert calls == [
+            "PP-OCRv4_mobile_rec",
+            "arabic_PP-OCRv5_mobile_rec",
+            "PP-OCRv4_mobile_rec",
+        ]
     finally:
         runtime.close()
 
 
-def test_ocr_runtime_does_not_retry_failed_startup_per_request(
+def test_ocr_runtime_does_not_retry_a_failed_model_load_per_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = 0
@@ -138,8 +148,9 @@ def test_ocr_runtime_does_not_retry_failed_startup_per_request(
     _load_pipeline.cache_clear()
     runtime = OCRRuntime()
     try:
+        runtime.initialize()
         with pytest.raises(OCRInitializationError):
-            runtime.initialize()
+            runtime.extract_text(b"image")
         with pytest.raises(OCRInitializationError):
             runtime.extract_text(b"image")
         assert calls == 1

@@ -20,7 +20,6 @@ MAX_IMAGE_PIXELS = 40_000_000
 MAX_IMAGE_EDGE = 3_200
 SUPPORTED_OCR_LANGUAGES = ("en", "fr", "ar", "zh_CN")
 DEFAULT_OCR_LANGUAGES = ("en", "fr", "ar")
-OCR_PIPELINE_LANGUAGES = ("latin", "ar", "zh_CN")
 _inference_lock = threading.Lock()
 
 
@@ -114,8 +113,8 @@ def _load_pipeline(language: str) -> OCRPipeline:
             "arabic_PP-OCRv5_mobile_rec",
         ),
         "zh_CN": (
-            "PP-OCRv5_server_det",
-            "PP-OCRv5_server_rec",
+            "PP-OCRv4_mobile_det",
+            "PP-OCRv4_mobile_rec",
         ),
     }
     if language not in model_configs:
@@ -129,9 +128,9 @@ def _load_pipeline(language: str) -> OCRPipeline:
             text_recognition_model_name=recognition_model_name,
             device="cpu",
             enable_mkldnn=False,
-            use_doc_orientation_classify=True,
+            use_doc_orientation_classify=False,
             use_doc_unwarping=False,
-            use_textline_orientation=True,
+            use_textline_orientation=False,
         )
     except MemoryError:
         raise
@@ -196,34 +195,15 @@ class OCRRuntime:
     def __init__(self) -> None:
         self._initialization_lock = threading.Lock()
         self._pipelines: dict[str, OCRPipeline] = {}
+        self._pipeline_errors: dict[str, OCRInitializationError] = {}
         self._initialized = False
-        self._initialization_error: Exception | None = None
 
     def initialize(self) -> None:
         with self._initialization_lock:
             if self._initialized:
                 return
-            try:
-                pipelines = {
-                    language: _load_pipeline(language)
-                    for language in OCR_PIPELINE_LANGUAGES
-                }
-            except Exception as error:
-                self._pipelines.clear()
-                self._initialization_error = error
-                _load_pipeline.cache_clear()
-                logger.exception("Could not initialize all PaddleOCR pipelines.")
-                raise OCRInitializationError(
-                    "PaddleOCR runtime initialization failed."
-                ) from error
-
-            self._pipelines = pipelines
-            self._initialization_error = None
             self._initialized = True
-            logger.info(
-                "PaddleOCR pipelines initialized.",
-                extra={"pipeline_count": len(pipelines)},
-            )
+            logger.info("PaddleOCR runtime ready; language models will load on demand.")
 
     def extract_text(
         self,
@@ -235,7 +215,7 @@ class OCRRuntime:
         if not self._initialized:
             raise OCRInitializationError(
                 "The PaddleOCR runtime has not been initialized."
-            ) from self._initialization_error
+            )
         return _run_pipelines(
             image,
             pipeline_languages,
@@ -245,17 +225,24 @@ class OCRRuntime:
     def _get_pipeline(self, language: str) -> OCRPipeline:
         try:
             return self._pipelines[language]
-        except KeyError as error:
-            raise OCRInitializationError(
-                "A requested PaddleOCR pipeline is unavailable."
-            ) from error
+        except KeyError:
+            if language in self._pipeline_errors:
+                raise self._pipeline_errors[language]
+            try:
+                pipeline = _load_pipeline(language)
+            except OCRInitializationError as error:
+                self._pipeline_errors[language] = error
+                logger.exception("Could not initialize the PaddleOCR pipeline for %s.", language)
+                raise
+            self._pipelines[language] = pipeline
+            return pipeline
 
     def close(self) -> None:
         with self._initialization_lock:
             with _inference_lock:
                 self._pipelines.clear()
+                self._pipeline_errors.clear()
                 self._initialized = False
-                self._initialization_error = None
                 _load_pipeline.cache_clear()
 
 

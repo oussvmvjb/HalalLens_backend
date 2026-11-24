@@ -18,7 +18,7 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-The app uses SQLite for local development when `DATABASE_URL` is unset. Set `DATABASE_URL` to a PostgreSQL async URL for PostgreSQL.
+The checked-in `.env.example` points to the local PostgreSQL database. If `DATABASE_URL` is unset, the app uses the local SQLite database. For deployment, configure `DATABASE_URL` in the hosting environment with the Supabase PostgreSQL async connection string; keep the password in deployment secrets and out of `.env.example` and source control. The local `.env` and Compose setup can continue using the local database.
 
 ## Run tests
 
@@ -40,10 +40,12 @@ python -m pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-FastAPI initializes and caches the Latin (English/French), Arabic, and Simplified Chinese
-PaddleOCR pipelines during application startup. The first startup downloads any missing models
-and therefore needs network access; startup may take longer on a fresh installation. OCR models
-are reused for all scans and released during application shutdown.
+FastAPI initializes the OCR runtime at startup and loads only the requested language pipelines on
+the first scan. Latin and Arabic use PP-OCRv5 mobile models; Simplified Chinese uses PP-OCRv4
+mobile models. Optional document and text-line orientation models are disabled to reduce memory
+use. The first scan for each language downloads any missing models and therefore needs network
+access; model downloads may take longer on a fresh installation. Loaded OCR models are reused for
+later scans and released during application shutdown.
 
 `POST /api/v1/scan/extract-text` remains synchronous and preserves its successful response
 fields; it also returns `status`, `message`, and a `data.extracted_text` envelope. The backend
