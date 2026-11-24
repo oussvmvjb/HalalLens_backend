@@ -64,15 +64,21 @@ class User(TimestampMixin, Base):
 
 class Product(TimestampMixin, Base):
     __tablename__ = "products"
+    __table_args__ = (Index("uq_products_barcode", "barcode", unique=True),)
 
     id: Mapped[UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid4)
-    barcode: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    barcode: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     brand: Mapped[str | None] = mapped_column(String(160))
     description: Mapped[str | None] = mapped_column(Text)
     image_url: Mapped[str | None] = mapped_column(String(2048))
     country_of_origin: Mapped[str | None] = mapped_column(String(2))
     source: Mapped[str | None] = mapped_column(String(120))
+    external_data: Mapped[dict[str, object]] = mapped_column(
+        JSON_TYPE,
+        default=dict,
+        nullable=False,
+    )
 
     ingredients: Mapped[list["ProductIngredient"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
@@ -81,6 +87,17 @@ class Product(TimestampMixin, Base):
         back_populates="product", cascade="all, delete-orphan"
     )
     scans: Mapped[list["Scan"]] = relationship(back_populates="product")
+
+
+class ProductDetailsTranslationCache(CreatedAtMixin, Base):
+    __tablename__ = "product_details_translation_cache"
+
+    source_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    target_language: Mapped[str] = mapped_column(String(5), primary_key=True)
+    translated_details: Mapped[dict[str, object]] = mapped_column(
+        JSON_TYPE,
+        nullable=False,
+    )
 
 
 class Ingredient(TimestampMixin, Base):

@@ -4,8 +4,37 @@ import pytest
 from httpx import AsyncClient
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost:56493",
+        "http://127.0.0.1:56493",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+)
+@pytest.mark.asyncio
+async def test_auth_register_preflight_allows_development_origins(
+    client: AsyncClient, origin: str
+) -> None:
+    response = await client.options(
+        "/api/v1/auth/register",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,authorization",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+    assert response.headers["access-control-allow-credentials"] == "true"
+    assert "POST" in response.headers["access-control-allow-methods"]
+
+
 @pytest.mark.asyncio
 async def test_register_login_and_authenticated_me(client: AsyncClient) -> None:
+    origin = "http://localhost:56493"
     register = await client.post(
         "/api/v1/auth/register",
         json={
@@ -14,8 +43,10 @@ async def test_register_login_and_authenticated_me(client: AsyncClient) -> None:
             "password": "a-secure-password-123",
             "preferred_language": "en",
         },
+        headers={"Origin": origin},
     )
     assert register.status_code == 201
+    assert register.headers["access-control-allow-origin"] == origin
     assert register.json()["email"] == "amina@example.com"
     assert "hashed_password" not in register.json()
 
@@ -32,8 +63,10 @@ async def test_register_login_and_authenticated_me(client: AsyncClient) -> None:
     login = await client.post(
         "/api/v1/auth/login",
         json={"email": "amina@example.com", "password": "a-secure-password-123"},
+        headers={"Origin": origin},
     )
     assert login.status_code == 200
+    assert login.headers["access-control-allow-origin"] == origin
     tokens = login.json()
     assert tokens["access_token"]
     assert tokens["refresh_token"]

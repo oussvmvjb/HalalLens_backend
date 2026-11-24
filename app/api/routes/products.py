@@ -1,5 +1,6 @@
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 
 from app.api.dependencies.auth import DatabaseSession
 from app.models import Product
@@ -13,7 +14,14 @@ router = APIRouter(prefix="/products", tags=["Products"])
 async def create_product(payload: ProductCreate, db: DatabaseSession) -> Product:
     product = Product(**payload.model_dump(mode="json"))
     db.add(product)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as error:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A product with this barcode already exists.",
+        ) from error
     await db.refresh(product)
     return product
 

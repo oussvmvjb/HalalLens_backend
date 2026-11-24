@@ -2,12 +2,30 @@
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
+from starlette.concurrency import run_in_threadpool
 
-from app.api.routes import auth, certifications, ingredients, products, reports, scans
+from app.api.routes import (
+    auth,
+    barcode,
+    certifications,
+    ingredients,
+    ocr,
+    products,
+    reports,
+    scans,
+    translations,
+)
 from app.core.config import get_settings
 from app.db.session import engine
 from app.db.base import Base  # Imports Base and registers all models
+from app.schemas.ocr import OCRFailureResponse
+from app.schemas.barcode import BarcodeLookupFailure
+from app.services.ocr_service import OCRInitializationError, ocr_runtime
 
 settings = get_settings()
 
@@ -20,10 +38,18 @@ async def lifespan(app: FastAPI):
 
     print("Database tables created successfully.")
 
-    yield
+    app.state.ocr_runtime = ocr_runtime
+    app.state.ocr_initialization_failed = False
+    try:
+        await run_in_threadpool(ocr_runtime.initialize)
+    except OCRInitializationError:
+        app.state.ocr_initialization_failed = True
 
-    # Close database connections on shutdown
-    await engine.dispose()
+    try:
+        yield
+    finally:
+        await run_in_threadpool(ocr_runtime.close)
+        await engine.dispose()
 
 
 app = FastAPI(
@@ -32,6 +58,7 @@ app = FastAPI(
     description="HalalLens product, scan, and ingredient API foundation.",
     lifespan=lifespan,
 )
+app.state.ocr_runtime = ocr_runtime
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,13 +71,42 @@ app.add_middleware(
 api_router = APIRouter(prefix=settings.api_v1_prefix)
 
 api_router.include_router(auth.router)
+api_router.include_router(ocr.router)
+api_router.include_router(barcode.router)
 api_router.include_router(products.router)
 api_router.include_router(scans.router)
 api_router.include_router(ingredients.router)
 api_router.include_router(certifications.router)
 api_router.include_router(reports.router)
+api_router.include_router(translations.router)
 
 app.include_router(api_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_request_validation_error(
+    request: Request,
+    error: RequestValidationError,
+) -> JSONResponse:
+    if request.method == "POST" and request.url.path.endswith("/scan/extract-text"):
+        return JSONResponse(
+            status_code=422,
+            content=OCRFailureResponse(
+                error_code="INVALID_OCR_REQUEST",
+                message="The image request is incomplete or invalid.",
+                retryable=False,
+            ).model_dump(),
+        )
+    if request.method == "POST" and request.url.path.endswith("/scan/barcode"):
+        return JSONResponse(
+            status_code=422,
+            content=BarcodeLookupFailure(
+                error_code="INVALID_BARCODE",
+                message="Enter a valid product barcode and try again.",
+                retryable=False,
+            ).model_dump(),
+        )
+    return await request_validation_exception_handler(request, error)
 
 
 @app.get("/health", tags=["Health"])
