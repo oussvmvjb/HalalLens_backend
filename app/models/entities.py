@@ -29,6 +29,7 @@ from app.models.enums import (
     ReportType,
     RiskCategory,
     ScanStatus,
+    ScanType,
     VerificationStatus,
 )
 
@@ -215,8 +216,17 @@ class Scan(CreatedAtMixin, Base):
     image_url: Mapped[str | None] = mapped_column(String(2048))
     original_ingredients_text: Mapped[str | None] = mapped_column(Text)
     detected_language: Mapped[str | None] = mapped_column(String(5))
+    scan_type: Mapped[ScanType] = mapped_column(
+        Enum(ScanType, name="scan_type"), default=ScanType.BARCODE, nullable=False
+    )
     scan_status: Mapped[ScanStatus] = mapped_column(
         Enum(ScanStatus, name="scan_status"), default=ScanStatus.RECEIVED, nullable=False
+    )
+    analysis_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    snapshot: Mapped[dict[str, object]] = mapped_column(
+        JSON_TYPE, default=dict, nullable=False
     )
     user: Mapped[User | None] = relationship(back_populates="scans")
     product: Mapped[Product | None] = relationship(back_populates="scans")

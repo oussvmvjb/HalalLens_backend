@@ -11,6 +11,7 @@ from app.models.enums import (
     ReportType,
     RiskCategory,
     ScanStatus,
+    ScanType,
     VerificationStatus,
 )
 
@@ -139,10 +140,75 @@ class ScanResponse(ORMModel):
     product_id: UUID | None
     barcode: str | None
     image_url: str | None
+    scan_type: ScanType
     original_ingredients_text: str | None
     detected_language: str | None
     scan_status: ScanStatus
+    analysis_completed_at: datetime | None
     created_at: datetime
+
+
+class ScanProductSnapshot(ORMModel):
+    id: UUID | None = None
+    name: str | None = None
+    brand: str | None = None
+    barcode: str | None = None
+    image_url: str | None = None
+    description: str | None = None
+    categories: list[str] = Field(default_factory=list)
+    country_of_origin: str | None = None
+    ingredients: list[dict[str, object]] = Field(default_factory=list)
+    ingredients_text: str | None = None
+    nutriments: dict[str, object] = Field(default_factory=dict)
+    labels: list[str] = Field(default_factory=list)
+    source: str | None = None
+
+
+class ScanIngredientAnalysis(ORMModel):
+    original_name: str
+    normalized_name: str | None = None
+    risk_category: RiskCategory | None = None
+    confidence_score: float | None = None
+    warning: str | None = None
+
+
+class ScanCertificationSnapshot(ORMModel):
+    issuer: str | None = None
+    issuer_authority_status: AuthorityStatus | None = None
+    certificate_number: str | None = None
+    issue_date: date | None = None
+    expiry_date: date | None = None
+    verification_status: VerificationStatus | None = None
+    evidence_url: str | None = None
+
+
+class ScanAnalysisSnapshot(ORMModel):
+    overall_status: HalalStatus
+    confidence_score: float | None = None
+    explanation: str
+    analysis_version: str
+    warnings: list[str] = Field(default_factory=list)
+    ingredients_analysis: list[ScanIngredientAnalysis] = Field(default_factory=list)
+    certifications: list[ScanCertificationSnapshot] = Field(default_factory=list)
+
+
+class ScanHistoryItem(ORMModel):
+    id: UUID
+    user_id: UUID
+    product_id: UUID | None = None
+    scan_type: ScanType
+    barcode: str | None = None
+    scan_status: ScanStatus
+    created_at: datetime
+    product: ScanProductSnapshot
+    analysis: ScanAnalysisSnapshot
+
+
+class ScanDetailsResponse(ScanHistoryItem):
+    image_url: str | None = None
+    original_ingredients_text: str | None = None
+    detected_language: str | None = None
+    analysis_completed_at: datetime | None = None
 
 
 class ReportCreate(BaseModel):

@@ -38,6 +38,11 @@ class ScanStatus(str, Enum):
     FAILED = "FAILED"
 
 
+class ScanType(str, Enum):
+    BARCODE = "BARCODE"
+    IMAGE = "IMAGE"
+
+
 class EvidenceType(str, Enum):
     INGREDIENT = "INGREDIENT"
     CERTIFICATION = "CERTIFICATION"

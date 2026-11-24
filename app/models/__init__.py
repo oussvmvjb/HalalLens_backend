@@ -20,6 +20,7 @@ from app.models.enums import (
     ReportType,
     RiskCategory,
     ScanStatus,
+    ScanType,
     VerificationStatus,
 )
 
@@ -41,6 +42,7 @@ __all__ = [
     "ScanEvidence",
     "ScanResult",
     "ScanStatus",
+    "ScanType",
     "User",
     "UserReport",
     "VerificationStatus",

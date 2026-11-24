@@ -1,4 +1,5 @@
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +37,7 @@ class OCRExtractionResponse(BaseModel):
     )
     ingredients: list[OCRIngredientSuggestion] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    scan_id: UUID | None = None
 
 
 class OCRFailureResponse(BaseModel):

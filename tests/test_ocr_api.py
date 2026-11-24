@@ -74,7 +74,9 @@ async def test_text_extraction_returns_recognized_regions(
     )
 
     assert response.status_code == 200
-    assert response.json() == {
+    data = response.json()
+    assert data.pop("scan_id")
+    assert data == {
         "success": True,
         "status": "completed",
         "message": "Text extracted successfully.",

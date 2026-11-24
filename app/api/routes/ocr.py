@@ -25,6 +25,9 @@ from app.services.ocr_service import (
     ocr_runtime,
 )
 from app.services.ingredient_processing import extract_ingredients
+from app.api.dependencies.auth import DatabaseSession, OptionalUser
+from app.models import Scan, ScanStatus, ScanType
+from app.services.scans import analyze_scan, build_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +81,8 @@ def _consume_late_result(future: asyncio.Future[object]) -> None:
 async def extract_product_text(
     image: Annotated[UploadFile, File(description="Product label image")],
     request: Request,
+    db: DatabaseSession,
+    user: OptionalUser,
     languages: Annotated[list[OCRLanguage] | None, Form()] = None,
 ) -> OCRExtractionResponse | JSONResponse:
     worker: asyncio.Future[list] | None = None
@@ -132,6 +137,38 @@ async def extract_product_text(
             )
 
         ingredients, warnings = extract_ingredients(regions)
+        scan = Scan(
+            user_id=user.id if user else None,
+            barcode=None,
+            scan_type=ScanType.IMAGE,
+            scan_status=ScanStatus.COMPLETED,
+            original_ingredients_text="\n".join(region.text for region in regions) or None,
+            detected_language=",".join(selected_languages),
+        )
+        db.add(scan)
+        await db.flush()
+        analysis = await analyze_scan(
+            db,
+            scan,
+            original_ingredients_text=scan.original_ingredients_text,
+            detected_language=scan.detected_language,
+        )
+        scan.snapshot = build_snapshot(
+            result=analysis,
+            original_ingredients_text=scan.original_ingredients_text,
+            ingredients=[
+                {
+                    "original_name": item.original_text,
+                    "normalized_name": item.normalized_text,
+                    "confidence_score": item.normalization_confidence,
+                    "warning": "Needs review" if item.needs_review else None,
+                }
+                for item in ingredients
+            ],
+            warnings=warnings,
+        )
+        db.add(scan)
+        await db.commit()
         logger.info(
             "OCR request completed.",
             extra={
@@ -150,6 +187,7 @@ async def extract_product_text(
             language=selected_languages,
             ingredients=ingredients,
             warnings=warnings,
+            scan_id=scan.id,
         )
     except asyncio.CancelledError:
         if worker is not None:

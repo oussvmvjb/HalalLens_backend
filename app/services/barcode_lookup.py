@@ -17,6 +17,7 @@ from app.models import (
     ProductIngredient,
     Scan,
     ScanStatus,
+    ScanType,
     User,
 )
 from app.schemas.barcode import (
@@ -31,7 +32,7 @@ from app.services.open_food_facts import (
     OpenFoodFactsUnavailable,
     fetch_open_food_facts_product,
 )
-from app.services.scans import analyze_scan
+from app.services.scans import analyze_scan, build_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,7 @@ class BarcodeLookupService:
             user_id=user_id,
             product_id=product.id,
             barcode=barcode,
+            scan_type=ScanType.BARCODE,
             scan_status=ScanStatus.RECEIVED,
         )
         db.add(scan)
@@ -135,6 +137,31 @@ class BarcodeLookupService:
             detected_language=None,
         )
         certifications = await _certifications_for_product(db, product.id)
+        scan.snapshot = build_snapshot(
+            product=product,
+            barcode=barcode,
+            result=analysis,
+            original_ingredients_text=(
+                product.external_data.get("ingredients_text")
+                if isinstance(product.external_data.get("ingredients_text"), str)
+                else ", ".join(ingredients) or None
+            ),
+            ingredients=[{"original_name": name, "normalized_name": name} for name in ingredients],
+            certifications=[
+                {
+                    "issuer": certification.issuer,
+                    "issuer_authority_status": certification.issuer_authority_status.value,
+                    "certificate_number": certification.certificate_number,
+                    "expiry_date": certification.expiry_date.isoformat() if certification.expiry_date else None,
+                    "verification_status": certification.verification_status.value,
+                    "evidence_url": certification.evidence_url,
+                }
+                for certification in certifications
+            ],
+        )
+        db.add(scan)
+        await db.commit()
+        await db.refresh(scan)
         product_data = product.external_data or {}
         return BarcodeLookupResponse(
             product=BarcodeProductResponse(
