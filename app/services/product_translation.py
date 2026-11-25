@@ -1,13 +1,11 @@
 import hashlib
-import html
 import json
 import logging
 from typing import Any
 
 import httpx
 from pydantic import ValidationError
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -19,18 +17,48 @@ from app.schemas.product_translation import (
 )
 
 logger = logging.getLogger(__name__)
-GOOGLE_TRANSLATION_URL = "https://translation.googleapis.com/language/translate/v2"
-TRANSLATION_TIMEOUT_SECONDS = 15.0
+TRANSLATION_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=10.0, pool=5.0)
+
+DEEPL_LANGUAGE_MAP: dict[str, str] = {
+    "en": "EN",
+    "en-us": "EN-US",
+    "en-gb": "EN-GB",
+    "zh": "ZH",
+    "zh-cn": "ZH",
+    "zh-hans": "ZH",
+    "zh-tw": "ZH-HANT",
+    "zh-hant": "ZH-HANT",
+    "fr": "FR",
+    "ar": "AR",
+    "de": "DE",
+}
 
 
 class ProductTranslationUnavailable(Exception):
     pass
 
 
+class UnsupportedTranslationLanguage(ProductTranslationUnavailable):
+    pass
+
+
+def map_deepl_language(language_code: str) -> str:
+    """Map an application language code to a supported DeepL target language code."""
+    normalized = language_code.strip().lower().replace("_", "-")
+    mapped = DEEPL_LANGUAGE_MAP.get(normalized)
+    if mapped is None:
+        raise UnsupportedTranslationLanguage(
+            f"Unsupported translation target language: {language_code}"
+        )
+    return mapped
+
+
 async def translate_product_details(
     db: AsyncSession,
     request: ProductDetailsTranslationRequest,
 ) -> ProductDetailsTranslationResponse:
+    map_deepl_language(request.target_language)
+
     source_details = request.details.model_dump(mode="json")
     source_hash = hashlib.sha256(
         json.dumps(
@@ -42,11 +70,11 @@ async def translate_product_details(
     ).hexdigest()
     cache_key = (source_hash, request.target_language)
 
-    cached = await db.get(ProductDetailsTranslationCache, cache_key)
+    cached = await _read_cache_entry(db, cache_key)
     if cached is not None:
         return ProductDetailsTranslationResponse(
             target_language=request.target_language,
-            details=ProductDetailsText.model_validate(cached.translated_details),
+            details=cached,
         )
 
     try:
@@ -55,9 +83,42 @@ async def translate_product_details(
         )
     except ValidationError as error:
         raise ProductTranslationUnavailable from error
+
+    await _write_cache_entry(db, cache_key, translated_details)
+
+    return ProductDetailsTranslationResponse(
+        target_language=request.target_language,
+        details=translated_details,
+    )
+
+
+async def _read_cache_entry(
+    db: AsyncSession,
+    cache_key: tuple[str, str],
+) -> ProductDetailsText | None:
+    try:
+        cached = await db.get(ProductDetailsTranslationCache, cache_key)
+    except SQLAlchemyError:
+        logger.warning("Failed to read product translation cache; falling back to DeepL")
+        return None
+    if cached is None:
+        return None
+    try:
+        return ProductDetailsText.model_validate(cached.translated_details)
+    except ValidationError:
+        logger.warning("Cached product translation entry is invalid; re-translating")
+        return None
+
+
+async def _write_cache_entry(
+    db: AsyncSession,
+    cache_key: tuple[str, str],
+    translated_details: ProductDetailsText,
+) -> None:
+    source_hash, target_language = cache_key
     cache_entry = ProductDetailsTranslationCache(
         source_hash=source_hash,
-        target_language=request.target_language,
+        target_language=target_language,
         translated_details=translated_details.model_dump(mode="json"),
     )
     db.add(cache_entry)
@@ -65,17 +126,10 @@ async def translate_product_details(
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        cached = await db.get(ProductDetailsTranslationCache, cache_key)
-        if cached is None:
-            raise
-        translated_details = ProductDetailsText.model_validate(
-            cached.translated_details
-        )
-
-    return ProductDetailsTranslationResponse(
-        target_language=request.target_language,
-        details=translated_details,
-    )
+        logger.debug("Concurrent translation cache insert handled for %s", source_hash)
+    except SQLAlchemyError:
+        await db.rollback()
+        logger.warning("Failed to persist product translation cache entry")
 
 
 async def _translate_details(
@@ -120,78 +174,123 @@ async def translate_texts(
     texts: list[str],
     target_language: str,
     *,
+    source_language: str | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> list[str]:
-    api_key = get_settings().google_translation_api_key
-    if not api_key:
-        raise ProductTranslationUnavailable
+    deepl_target = map_deepl_language(target_language)
+    deepl_source = (
+        map_deepl_language(source_language).split("-", 1)[0]
+        if source_language
+        else None
+    )
+
     if not texts:
         return []
 
-    if client is not None:
-        return await _request_translations(client, api_key, texts, target_language)
+    settings = get_settings()
+    api_key = (settings.deepl_api_key or "").strip()
+    if not api_key:
+        logger.warning("DeepL API key is not configured")
+        raise ProductTranslationUnavailable
 
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(TRANSLATION_TIMEOUT_SECONDS)
-        ) as http_client:
-            return await _request_translations(
-                http_client, api_key, texts, target_language
-            )
-    except (httpx.RequestError, httpx.HTTPStatusError) as error:
-        logger.warning("Google Cloud Translation request failed")
-        raise ProductTranslationUnavailable from error
+    base_url = (settings.deepl_api_base_url or "https://api-free.deepl.com").strip().rstrip("/")
+    translate_url = f"{base_url}/v2/translate"
+
+    if client is not None:
+        return await _request_translations(
+            client, translate_url, api_key, texts, deepl_target, deepl_source
+        )
+
+    async with httpx.AsyncClient(timeout=TRANSLATION_TIMEOUT) as http_client:
+        return await _request_translations(
+            http_client, translate_url, api_key, texts, deepl_target, deepl_source
+        )
 
 
 async def _request_translations(
     client: httpx.AsyncClient,
+    translate_url: str,
     api_key: str,
     texts: list[str],
-    target_language: str,
+    target_lang: str,
+    source_lang: str | None = None,
 ) -> list[str]:
+    payload_body: dict[str, Any] = {
+        "text": texts,
+        "target_lang": target_lang,
+    }
+    if source_lang is not None:
+        payload_body["source_lang"] = source_lang
+
     try:
         response = await client.post(
-            GOOGLE_TRANSLATION_URL,
-            params={"key": api_key},
-            json={"q": texts, "target": target_language, "format": "text"},
+            translate_url,
+            headers={
+                "Authorization": f"DeepL-Auth-Key {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload_body,
         )
-        response.raise_for_status()
-        payload: Any = response.json()
-    except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as error:
-        logger.warning("Google Cloud Translation request failed")
+    except httpx.TimeoutException as error:
+        logger.warning("DeepL translation request timed out")
+        raise ProductTranslationUnavailable from error
+    except httpx.RequestError as error:
+        logger.warning("DeepL translation network request failed")
         raise ProductTranslationUnavailable from error
 
-    data = payload.get("data") if isinstance(payload, dict) else None
-    translations = data.get("translations") if isinstance(data, dict) else None
+    if response.status_code in {401, 403}:
+        logger.warning("DeepL translation authentication failed (HTTP %s)", response.status_code)
+        raise ProductTranslationUnavailable
+    if response.status_code == 429:
+        logger.warning("DeepL translation rate limit exceeded (HTTP 429)")
+        raise ProductTranslationUnavailable
+    if response.status_code == 456:
+        logger.warning("DeepL translation quota exceeded (HTTP 456)")
+        raise ProductTranslationUnavailable
+    if response.status_code >= 400:
+        logger.warning("DeepL translation returned HTTP %s", response.status_code)
+        raise ProductTranslationUnavailable
+
+    try:
+        payload: Any = response.json()
+    except ValueError as error:
+        logger.warning("DeepL translation returned invalid JSON")
+        raise ProductTranslationUnavailable from error
+
+    translations = payload.get("translations") if isinstance(payload, dict) else None
     if not isinstance(translations, list) or len(translations) != len(texts):
+        logger.warning("DeepL translation response missing expected translations list")
         raise ProductTranslationUnavailable
 
     results: list[str] = []
     for original, item in zip(texts, translations, strict=True):
-        if not isinstance(item, dict) or not isinstance(item.get("translatedText"), str):
+        if not isinstance(item, dict) or not isinstance(item.get("text"), str):
             raise ProductTranslationUnavailable
-        detected_language = item.get("detectedSourceLanguage")
-        translated = item["translatedText"]
+        detected_language = item.get("detected_source_language")
+        translated = item["text"]
         if (
             isinstance(detected_language, str)
-            and _same_language(detected_language, target_language)
+            and _same_language(detected_language, target_lang)
         ):
             results.append(original)
         else:
-            results.append(html.unescape(translated))
+            results.append(translated)
     return results
 
 
 def _same_language(source: str, target: str) -> bool:
     source_code = source.lower().replace("_", "-")
     target_code = target.lower().replace("_", "-")
-    if target_code == "zh-cn":
-        return source_code in {"zh", "zh-cn"}
-    return source_code == target_code or source_code.split("-", 1)[0] == target_code
+    if target_code == "zh":
+        return source_code in {"zh", "zh-hans", "zh-cn"}
+    return source_code == target_code or source_code.split("-", 1)[0] == target_code.split("-", 1)[0]
 
 
 __all__ = [
+    "DEEPL_LANGUAGE_MAP",
     "ProductTranslationUnavailable",
+    "UnsupportedTranslationLanguage",
+    "map_deepl_language",
     "translate_product_details",
     "translate_texts",
 ]

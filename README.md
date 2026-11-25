@@ -72,12 +72,12 @@ labels are not treated as verified halal certifications. The existing
 ### Product details translation
 
 `POST /api/v1/translations/product-details` translates only the supplied product detail
-fields into `en`, `zh-CN`, `fr`, or `ar`. Enable Google Cloud Translation API and configure
-`GOOGLE_TRANSLATION_API_KEY` in the backend environment; keep this credential server-side and
-never ship it with the mobile app. Product text is sent to Google Cloud Translation when no
-cached translation exists. Results are cached by source-text hash and target language in a
-separate table; source product data is not modified. Apply the migration with
-`alembic upgrade head`.
+fields into `en`, `zh-CN`, `fr`, or `ar`. Configure `DEEPL_API_KEY` and
+`DEEPL_API_BASE_URL` (`https://api-free.deepl.com` for Free or `https://api.deepl.com` for
+Pro) in the backend environment; keep this credential server-side and never ship it with the
+mobile app. Product text is sent to DeepL when no cached translation exists. Results are
+cached by source-text hash and target language in a separate table; source product data is not
+modified. Apply the migration with `alembic upgrade head`.
 
 Run `alembic upgrade head` before deploying. The barcode-data migration adds source metadata
 and a unique product barcode index; it stops rather than deleting data if duplicate barcode

@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     database_url: str = "sqlite+aiosqlite:///./halallens.db"
     redis_url: str = "redis://localhost:6379/0"
-    google_translation_api_key: str | None = None
+    deepl_api_key: str | None = None
+    deepl_api_base_url: str = "https://api-free.deepl.com"
     jwt_secret_key: str = Field(
         default="local-development-only-change-this-secret",
         min_length=32,
