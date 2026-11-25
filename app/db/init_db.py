@@ -93,14 +93,24 @@ def verify_schema_compatibility(sync_conn: Connection, metadata: MetaData) -> No
             missing_columns[table_name] = missing_cols
 
     missing_enums: list[str] = []
+    missing_enum_values: dict[str, list[str]] = {}
     if sync_conn.dialect.name == "postgresql":
-        existing_enums = {enum_info["name"] for enum_info in inspector.get_enums()}
-        expected_enums: set[str] = set()
+        existing_enums = {
+            enum_info["name"]: set(enum_info.get("labels", ()))
+            for enum_info in inspector.get_enums()
+        }
+        expected_enums: dict[str, tuple[str, ...]] = {}
         for table in metadata.tables.values():
             for col in table.columns:
                 if isinstance(col.type, SAEnum) and col.type.name:
-                    expected_enums.add(col.type.name)
-        missing_enums = sorted(expected_enums - existing_enums)
+                    expected_enums[col.type.name] = tuple(col.type.enums)
+        for enum_name, expected_labels in sorted(expected_enums.items()):
+            if enum_name not in existing_enums:
+                missing_enums.append(enum_name)
+                continue
+            absent_labels = [lbl for lbl in expected_labels if lbl not in existing_enums[enum_name]]
+            if absent_labels:
+                missing_enum_values[enum_name] = absent_labels
 
     diagnostics: list[str] = []
     if missing_tables:
@@ -112,6 +122,11 @@ def verify_schema_compatibility(sync_conn: Connection, metadata: MetaData) -> No
         diagnostics.append(f"missing columns: {cols_detail}")
     if missing_enums:
         diagnostics.append(f"missing PostgreSQL enum types: {', '.join(missing_enums)}")
+    if missing_enum_values:
+        enum_detail = "; ".join(
+            f"{name} ({', '.join(vals)})" for name, vals in sorted(missing_enum_values.items())
+        )
+        diagnostics.append(f"missing PostgreSQL enum values: {enum_detail}")
 
     if diagnostics:
         message = f"[DATABASE] Schema verification failed: {' | '.join(diagnostics)}"
@@ -131,6 +146,19 @@ async def _migrate_and_verify(init_engine: AsyncEngine, database_url: str) -> No
             await conn.commit()
 
         if set(current_heads) != set(target_heads):
+            if not current_heads:
+                existing_app_tables = await conn.run_sync(
+                    lambda sync_conn: set(inspect(sync_conn).get_table_names())
+                    & set(Base.metadata.tables.keys())
+                )
+                if conn.in_transaction():
+                    await conn.commit()
+                if existing_app_tables:
+                    logger.info(
+                        "[DATABASE] Existing tables detected without Alembic version (%d tables); "
+                        "reconciling schema safely...",
+                        len(existing_app_tables),
+                    )
             current_display = ", ".join(current_heads) if current_heads else "none"
             target_display = ", ".join(target_heads) if target_heads else "none"
             logger.info(
