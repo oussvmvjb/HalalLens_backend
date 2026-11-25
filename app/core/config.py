@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @model_validator(mode="after")
+    def normalize_database_url(self) -> "Settings":
+        url = self.database_url.strip()
+        if url.startswith("postgres://"):
+            url = "postgresql+asyncpg://" + url[len("postgres://") :]
+        elif url.startswith("postgresql://"):
+            url = "postgresql+asyncpg://" + url[len("postgresql://") :]
+        self.database_url = url
+        return self
+
+    @model_validator(mode="after")
     def require_non_default_secret_outside_development(self) -> "Settings":
         if (
             self.environment.lower() not in {"development", "test"}

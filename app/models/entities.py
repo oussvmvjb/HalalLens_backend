@@ -207,6 +207,8 @@ class Scan(CreatedAtMixin, Base):
     __table_args__ = (
         Index("ix_scans_user_created_at", "user_id", "created_at"),
         Index("ix_scans_barcode", "barcode"),
+        Index("ix_scans_product_id", "product_id"),
+        Index("ix_scans_scan_status", "scan_status"),
     )
 
     id: Mapped[UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid4)

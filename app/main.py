@@ -21,8 +21,8 @@ from app.api.routes import (
     translations,
 )
 from app.core.config import get_settings
+from app.db.init_db import initialize_database, logger as db_logger
 from app.db.session import engine
-from app.db.base import Base  # Imports Base and registers all models
 from app.schemas.ocr import OCRFailureResponse
 from app.schemas.barcode import BarcodeLookupFailure
 from app.services.ocr_service import OCRInitializationError, ocr_runtime
@@ -32,11 +32,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Automatically create all database tables on startup
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    print("Database tables created successfully.")
+    await initialize_database()
 
     app.state.ocr_runtime = ocr_runtime
     app.state.ocr_initialization_failed = False
@@ -44,6 +40,8 @@ async def lifespan(app: FastAPI):
         await run_in_threadpool(ocr_runtime.initialize)
     except OCRInitializationError:
         app.state.ocr_initialization_failed = True
+
+    db_logger.info("[DATABASE] Backend startup completed.")
 
     try:
         yield
