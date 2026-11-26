@@ -23,8 +23,10 @@ from sqlalchemy.types import JSON
 from app.db.base import Base
 from app.models.enums import (
     AuthorityStatus,
+    EvidenceReviewStatus,
     EvidenceType,
     HalalStatus,
+    IngredientHalalStatus,
     ReportStatus,
     ReportType,
     RiskCategory,
@@ -107,17 +109,87 @@ class Ingredient(TimestampMixin, Base):
     id: Mapped[UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid4)
     canonical_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     normalized_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    ingredient_type: Mapped[str | None] = mapped_column(String(64))
+    e_number: Mapped[str | None] = mapped_column(String(32), index=True)
+    ins_number: Mapped[str | None] = mapped_column(String(32), index=True)
+    aliases: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     ingredient_code: Mapped[str | None] = mapped_column(String(64), index=True)
     risk_category: Mapped[RiskCategory] = mapped_column(
         Enum(RiskCategory, name="risk_category"), default=RiskCategory.UNKNOWN, nullable=False
     )
+    halal_status: Mapped[IngredientHalalStatus] = mapped_column(
+        Enum(
+            IngredientHalalStatus,
+            name="ingredient_halal_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        default=IngredientHalalStatus.UNKNOWN,
+        nullable=False,
+    )
+    source_requirements: Mapped[str | None] = mapped_column(Text)
+    conditions: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list, nullable=False)
+    confidence_level: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    source_classification: Mapped[str | None] = mapped_column(String(64), index=True)
 
     translations: Mapped[list["IngredientTranslation"]] = relationship(
         back_populates="ingredient", cascade="all, delete-orphan"
     )
+    sources: Mapped[list["IngredientSource"]] = relationship(
+        back_populates="ingredient", cascade="all, delete-orphan"
+    )
     product_links: Mapped[list["ProductIngredient"]] = relationship(back_populates="ingredient")
     evidence: Mapped[list["ScanEvidence"]] = relationship(back_populates="ingredient")
+
+
+class IngredientSource(CreatedAtMixin, Base):
+    __tablename__ = "ingredient_sources"
+    __table_args__ = (
+        Index("ix_ingredient_sources_ingredient_id", "ingredient_id"),
+        Index("ix_ingredient_sources_review_status", "review_status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid4)
+    ingredient_id: Mapped[UUID] = mapped_column(
+        ForeignKey("ingredients.id", ondelete="CASCADE"), nullable=False
+    )
+    source_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_url: Mapped[str | None] = mapped_column(String(2048))
+    evidence_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_type: Mapped[EvidenceType] = mapped_column(
+        Enum(EvidenceType, name="evidence_type"), nullable=False
+    )
+    reviewer_or_organization: Mapped[str | None] = mapped_column(String(255))
+    verification_date: Mapped[date | None] = mapped_column(Date)
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_status: Mapped[EvidenceReviewStatus] = mapped_column(
+        Enum(
+            EvidenceReviewStatus,
+            name="evidence_review_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        default=EvidenceReviewStatus.PENDING,
+        nullable=False,
+    )
+    ingredient: Mapped[Ingredient] = relationship(back_populates="sources")
+
+
+class HalalRule(TimestampMixin, Base):
+    __tablename__ = "halal_rules"
+    __table_args__ = (
+        UniqueConstraint("rule_name"),
+        Index("ix_halal_rules_active_priority", "active", "rule_priority"),
+    )
+
+    id: Mapped[UUID] = mapped_column(UUID_TYPE, primary_key=True, default=uuid4)
+    rule_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    rule_description: Mapped[str] = mapped_column(Text, nullable=False)
+    rule_priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    applicable_conditions: Mapped[dict[str, object]] = mapped_column(
+        JSON_TYPE, default=dict, nullable=False
+    )
+    rule_version: Mapped[str] = mapped_column(String(32), default="1.0.0", nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class IngredientTranslation(Base):

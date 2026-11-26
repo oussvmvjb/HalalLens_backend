@@ -27,7 +27,7 @@ from app.services.ocr_service import (
 from app.services.ingredient_processing import extract_ingredients
 from app.api.dependencies.auth import DatabaseSession, OptionalUser
 from app.models import Scan, ScanStatus, ScanType
-from app.services.scans import analyze_scan, build_snapshot
+from app.services.scans import analyze_scan, analysis_snapshot, build_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -136,26 +136,43 @@ async def extract_product_text(
                 retryable=True,
             )
 
-        ingredients, warnings = extract_ingredients(regions)
+        full_text = "\n".join(region.text for region in regions) or None
+        ingredients, warnings = extract_ingredients(regions, full_text=full_text)
+
+        # Build the ingredients text to pass to the halal engine:
+        # prefer the extracted ingredient tokens over the raw full OCR text
+        # so that noise/recipe lines are stripped before analysis.
+        if ingredients:
+            extracted_ingredients_text = ", ".join(
+                item.original_text for item in ingredients if item.original_text.strip()
+            ) or full_text
+        else:
+            extracted_ingredients_text = full_text
+
         scan = Scan(
             user_id=user.id if user else None,
             barcode=None,
             scan_type=ScanType.IMAGE,
             scan_status=ScanStatus.COMPLETED,
-            original_ingredients_text="\n".join(region.text for region in regions) or None,
+            original_ingredients_text=extracted_ingredients_text,
             detected_language=",".join(selected_languages),
         )
         db.add(scan)
         await db.flush()
-        analysis = await analyze_scan(
+        result, assessment = await analyze_scan(
             db,
             scan,
-            original_ingredients_text=scan.original_ingredients_text,
+            original_ingredients_text=extracted_ingredients_text,
             detected_language=scan.detected_language,
+            return_assessment=True,
         )
+        from app.services.scans import analysis_snapshot  # local import avoids circular
+        halal_data = analysis_snapshot(result, assessment=assessment)
+
         scan.snapshot = build_snapshot(
-            result=analysis,
-            original_ingredients_text=scan.original_ingredients_text,
+            result=result,
+            assessment=assessment,
+            original_ingredients_text=extracted_ingredients_text,
             ingredients=[
                 {
                     "original_name": item.original_text,
@@ -188,6 +205,7 @@ async def extract_product_text(
             ingredients=ingredients,
             warnings=warnings,
             scan_id=scan.id,
+            halal_assessment=halal_data,
         )
     except asyncio.CancelledError:
         if worker is not None:

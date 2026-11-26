@@ -57,7 +57,7 @@ async def test_barcode_uses_database_product_and_existing_analysis(
     assert data["product"]["name"] == "Local soap"
     assert data["product"]["source"] is None
     assert data["analysis"]["overall_status"] == "UNKNOWN"
-    assert "No religious ruling was generated" in data["analysis"]["explanation"]
+    assert "No ingredients were available to analyze" in data["analysis"]["explanation"]
     assert data["certifications"] == []
 
 
@@ -90,7 +90,7 @@ async def test_barcode_imports_off_product_then_uses_database_cache(
     assert result["product"]["labels"] == ["en:organic"]
     assert result["product"]["origin_description"] == "France"
     assert result["product"]["nutriments"] == {"energy-kcal_100g": 12.0}
-    assert result["analysis"]["overall_status"] == "UNKNOWN"
+    assert result["analysis"]["overall_status"] == "DOUBTFUL"
 
 
 @pytest.mark.asyncio
@@ -168,7 +168,7 @@ async def test_unverified_potentially_sensitive_ingredient_is_not_classified(
 
     assert response.status_code == 200
     assert response.json()["product"]["ingredients"] == ["Gelatin"]
-    assert response.json()["analysis"]["overall_status"] == "UNKNOWN"
+    assert response.json()["analysis"]["overall_status"] == "DOUBTFUL"
 
 
 @pytest.mark.asyncio

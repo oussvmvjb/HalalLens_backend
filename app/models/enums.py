@@ -63,3 +63,27 @@ class ReportStatus(str, Enum):
     UNDER_REVIEW = "UNDER_REVIEW"
     RESOLVED = "RESOLVED"
     REJECTED = "REJECTED"
+
+
+class IngredientHalalStatus(str, Enum):
+    HALAL = "halal"
+    HARAM = "haram"
+    DOUBTFUL = "doubtful"
+    CONDITIONAL = "conditional"
+    UNKNOWN = "unknown"
+
+
+class ProductHalalVerdict(str, Enum):
+    HALAL_VERIFIED = "halal_verified"
+    LIKELY_HALAL = "likely_halal"
+    HARAM_DETECTED = "haram_detected"
+    DOUBTFUL = "doubtful"
+    INSUFFICIENT_INFORMATION = "insufficient_information"
+
+
+class EvidenceReviewStatus(str, Enum):
+    VERIFIED = "verified"
+    PENDING = "pending"
+    PENDING_REVIEW = "pending_review"
+    DISPUTED = "disputed"
+    REJECTED = "rejected"

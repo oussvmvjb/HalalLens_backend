@@ -120,7 +120,7 @@ async def test_initialize_database_idempotent_when_synchronized(
     with caplog.at_level(logging.INFO, logger="halallens.database"):
         await initialize_database(db_url)
 
-    assert "Alembic migration version is up to date (0004_scan_history)." in caplog.text
+    assert "Alembic migration version is up to date (0006_reference_provenance)." in caplog.text
     assert "[DATABASE] Applying pending migrations..." not in caplog.text
     assert "[DATABASE] Database schema is synchronized." in caplog.text
 
@@ -210,7 +210,7 @@ async def test_recover_missing_alembic_version_and_missing_scans_table(
     try:
         async with verify_engine.connect() as conn:
             version = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
-            assert version == "0004_scan_history"
+            assert version == "0006_reference_provenance"
             user_email = (
                 await conn.execute(text("SELECT email FROM users WHERE id = :id"), {"id": user_id})
             ).scalar_one()
@@ -254,7 +254,7 @@ async def test_recover_missing_alembic_version_and_missing_scan_columns(
     try:
         async with verify_engine.connect() as conn:
             version = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
-            assert version == "0004_scan_history"
+            assert version == "0006_reference_provenance"
             row = (
                 await conn.execute(
                     text("SELECT barcode, scan_type, snapshot FROM scans WHERE id = :id"),

@@ -165,8 +165,19 @@ class ScanProductSnapshot(ORMModel):
 
 
 class ScanIngredientAnalysis(ORMModel):
-    original_name: str
+    original_name: str | None = None
+    original_text: str | None = None
     normalized_name: str | None = None
+    e_number: str | None = None
+    ins_number: str | None = None
+    status: str | None = None
+    reason: str | None = None
+    match_type: str | None = None
+    matched_record_id: str | None = None
+    canonical_name: str | None = None
+    confidence: float | None = None
+    warnings: list[str] = Field(default_factory=list)
+    evidence: list[dict[str, object]] = Field(default_factory=list)
     risk_category: RiskCategory | None = None
     confidence_score: float | None = None
     warning: str | None = None
@@ -184,9 +195,11 @@ class ScanCertificationSnapshot(ORMModel):
 
 class ScanAnalysisSnapshot(ORMModel):
     overall_status: HalalStatus
+    verdict: str | None = None
     confidence_score: float | None = None
     explanation: str
     analysis_version: str
+    analyzed_at: datetime | None = None
     warnings: list[str] = Field(default_factory=list)
     ingredients_analysis: list[ScanIngredientAnalysis] = Field(default_factory=list)
     certifications: list[ScanCertificationSnapshot] = Field(default_factory=list)

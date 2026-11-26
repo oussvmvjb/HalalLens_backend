@@ -1,7 +1,12 @@
-from typing import Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    pass
 
 OCRLanguage = Literal["en", "fr", "ar", "zh_CN"]
 
@@ -38,6 +43,8 @@ class OCRExtractionResponse(BaseModel):
     ingredients: list[OCRIngredientSuggestion] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     scan_id: UUID | None = None
+    # Inline halal assessment (optional – present only after successful analysis)
+    halal_assessment: dict[str, Any] | None = None
 
 
 class OCRFailureResponse(BaseModel):

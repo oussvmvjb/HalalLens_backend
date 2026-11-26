@@ -115,7 +115,7 @@ async def test_product_and_guest_scan_analysis_remain_unknown(client: AsyncClien
         json={"scan_id": scan.json()["id"], "original_ingredients_text": "glycerin"},
     )
     assert analyzed.status_code == 200
-    assert analyzed.json()["overall_status"] == "UNKNOWN"
+    assert analyzed.json()["overall_status"] == "DOUBTFUL"
 
 
 @pytest.mark.asyncio

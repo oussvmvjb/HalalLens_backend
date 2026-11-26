@@ -13,6 +13,7 @@ from app.api.routes import (
     auth,
     barcode,
     certifications,
+    halal,
     ingredients,
     ocr,
     products,
@@ -22,7 +23,7 @@ from app.api.routes import (
 )
 from app.core.config import get_settings
 from app.db.init_db import initialize_database, logger as db_logger
-from app.db.session import engine
+from app.db.session import SessionLocal, engine
 from app.schemas.ocr import OCRFailureResponse
 from app.schemas.barcode import BarcodeLookupFailure
 from app.services.ocr_service import OCRInitializationError, ocr_runtime
@@ -33,6 +34,18 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await initialize_database()
+    try:
+        from scripts.seed_halal_reference_dataset import run_import
+
+        async with SessionLocal() as seed_session:
+            stats = await run_import(seed_session)
+            if stats["imported"] > 0:
+                db_logger.info(
+                    "[DATABASE] Seeded %d ingredient knowledge base records.",
+                    stats["imported"],
+                )
+    except Exception as exc:
+        db_logger.warning("[DATABASE] Ingredient reference seed skipped: %s", exc)
 
     app.state.ocr_runtime = ocr_runtime
     app.state.ocr_initialization_failed = False
@@ -71,6 +84,7 @@ api_router = APIRouter(prefix=settings.api_v1_prefix)
 api_router.include_router(auth.router)
 api_router.include_router(ocr.router)
 api_router.include_router(barcode.router)
+api_router.include_router(halal.router)
 api_router.include_router(products.router)
 api_router.include_router(scans.router)
 api_router.include_router(ingredients.router)

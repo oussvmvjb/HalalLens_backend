@@ -3,6 +3,7 @@ import logging
 import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import date
 from typing import AsyncIterator
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    AuthorityStatus,
     CertificationIssuer,
     HalalCertification,
     Product,
@@ -19,6 +21,7 @@ from app.models import (
     ScanStatus,
     ScanType,
     User,
+    VerificationStatus,
 )
 from app.schemas.barcode import (
     BarcodeAnalysisResponse,
@@ -26,6 +29,11 @@ from app.schemas.barcode import (
     BarcodeLookupResponse,
     BarcodeProductResponse,
 )
+from app.schemas.halal import (
+    EvidenceReferenceResponse,
+    IngredientClassificationResponse,
+)
+from app.services.halal_engine import CertificationEvidenceInput
 from app.services.open_food_facts import (
     OpenFoodFactsInvalidResponse,
     OpenFoodFactsProduct,
@@ -117,6 +125,18 @@ class BarcodeLookupService:
             return None
 
         ingredients = await _product_ingredients(db, product)
+        certifications = await _certifications_for_product(db, product.id)
+        today = date.today()
+        cert_inputs = [
+            CertificationEvidenceInput(
+                issuer=cert.issuer,
+                is_recognized_issuer=cert.issuer_authority_status == AuthorityStatus.RECOGNIZED,
+                is_verified=cert.verification_status == VerificationStatus.VERIFIED,
+                is_expired=cert.expiry_date is not None and cert.expiry_date < today,
+                certificate_number=cert.certificate_number,
+            )
+            for cert in certifications
+        ]
         scan = Scan(
             user_id=user_id,
             product_id=product.id,
@@ -126,7 +146,7 @@ class BarcodeLookupService:
         )
         db.add(scan)
         await db.flush()
-        analysis = await analyze_scan(
+        analysis, assessment = await analyze_scan(
             db,
             scan,
             original_ingredients_text=(
@@ -135,12 +155,15 @@ class BarcodeLookupService:
                 else ", ".join(ingredients) or None
             ),
             detected_language=None,
+            ingredients_list=ingredients,
+            certifications=cert_inputs,
+            return_assessment=True,
         )
-        certifications = await _certifications_for_product(db, product.id)
         scan.snapshot = build_snapshot(
             product=product,
             barcode=barcode,
             result=analysis,
+            assessment=assessment,
             original_ingredients_text=(
                 product.external_data.get("ingredients_text")
                 if isinstance(product.external_data.get("ingredients_text"), str)
@@ -191,8 +214,40 @@ class BarcodeLookupService:
             analysis=BarcodeAnalysisResponse(
                 scan_id=scan.id,
                 overall_status=analysis.overall_status,
+                verdict=assessment.verdict,
                 confidence_score=analysis.confidence_score,
                 explanation=analysis.explanation,
+                analysis_version=assessment.analysis_version,
+                analyzed_at=assessment.analyzed_at,
+                warnings=list(assessment.warnings),
+                ingredients_analysis=[
+                    IngredientClassificationResponse(
+                        original_text=item.normalized.original_text,
+                        normalized_name=item.normalized.normalized_name,
+                        e_number=item.normalized.e_number,
+                        ins_number=item.normalized.ins_number,
+                        status=item.status,
+                        reason=item.reason,
+                        match_type=item.match_type,
+                        matched_record_id=item.record.id if item.record is not None else None,
+                        canonical_name=item.record.canonical_name if item.record is not None else None,
+                        confidence=item.confidence,
+                        warnings=list(item.warnings),
+                        evidence=[
+                            EvidenceReferenceResponse(
+                                source_name=ref.source_name,
+                                source_url=ref.source_url,
+                                evidence_summary=ref.evidence_summary,
+                                evidence_type=ref.evidence_type,
+                                reviewer_or_organization=ref.reviewer_or_organization,
+                                verification_date=ref.verification_date,
+                                review_status=ref.review_status,
+                            )
+                            for ref in item.evidence
+                        ],
+                    )
+                    for item in assessment.classifications
+                ],
             ),
             certifications=certifications,
         )

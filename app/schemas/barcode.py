@@ -1,10 +1,16 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
-from app.models.enums import AuthorityStatus, HalalStatus, VerificationStatus
+from app.models.enums import (
+    AuthorityStatus,
+    HalalStatus,
+    ProductHalalVerdict,
+    VerificationStatus,
+)
+from app.schemas.halal import IngredientClassificationResponse
 from app.services.barcodes import is_valid_gtin
 
 GTIN = Annotated[str, StringConstraints(pattern=r"^(?:\d{8}|\d{12,14})$")]
@@ -49,8 +55,13 @@ class BarcodeCertificationResponse(BaseModel):
 class BarcodeAnalysisResponse(BaseModel):
     scan_id: UUID
     overall_status: HalalStatus
+    verdict: ProductHalalVerdict = ProductHalalVerdict.INSUFFICIENT_INFORMATION
     confidence_score: float | None = Field(default=None, ge=0, le=1)
     explanation: str
+    analysis_version: str = "halal-engine-v1"
+    analyzed_at: datetime | None = None
+    warnings: list[str] = Field(default_factory=list)
+    ingredients_analysis: list[IngredientClassificationResponse] = Field(default_factory=list)
 
 
 class BarcodeLookupResponse(BaseModel):
