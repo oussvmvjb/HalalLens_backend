@@ -104,6 +104,138 @@ _PLANT_MINERAL_HALAL_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "Sugar (sucrose) is a plant-derived sweetener and is halal-compatible.",
         ("sugar", "cane sugar", "beet sugar", "sucre", "سكر"),
     ),
+    # --- Common herbs and spices (always plant-derived) ---
+    (
+        "Black pepper",
+        "Black pepper is a plant-derived spice and is halal-compatible.",
+        ("black pepper", "pepper", "ground pepper", "white pepper", "poivre noir",
+         "poivre blanc", "poivre", "فلفل أسود", "فلفل"),
+    ),
+    (
+        "Parsley",
+        "Parsley is a plant-derived herb and is halal-compatible.",
+        ("parsley", "dried parsley", "fresh parsley", "chopped parsley",
+         "flat-leaf parsley", "persil", "بقدونس"),
+    ),
+    (
+        "Oregano",
+        "Oregano is a plant-derived herb and is halal-compatible.",
+        ("oregano", "dried oregano", "origan", "أوريغانو"),
+    ),
+    (
+        "Thyme",
+        "Thyme is a plant-derived herb and is halal-compatible.",
+        ("thyme", "dried thyme", "thym", "زعتر"),
+    ),
+    (
+        "Paprika",
+        "Paprika is a plant-derived spice made from dried red peppers and is halal-compatible.",
+        ("paprika", "smoked paprika", "sweet paprika", "piment doux", "بابريكا"),
+    ),
+    (
+        "Chili powder",
+        "Chili powder is a plant-derived spice blend and is halal-compatible.",
+        ("chili powder", "chilli powder", "chile powder", "piment en poudre", "بهارات الفلفل الحار"),
+    ),
+    (
+        "Cayenne pepper",
+        "Cayenne pepper is a plant-derived hot spice and is halal-compatible.",
+        ("cayenne pepper", "cayenne", "piment de cayenne", "فلفل كايين"),
+    ),
+    (
+        "Garlic powder",
+        "Garlic powder is a plant-derived spice and is halal-compatible.",
+        ("garlic powder", "garlic", "garlic clove", "garlic cloves", "minced garlic",
+         "ail", "ail en poudre", "ail moulu", "ثوم", "مسحوق الثوم"),
+    ),
+    (
+        "Onion powder",
+        "Onion powder is a plant-derived spice and is halal-compatible.",
+        ("onion powder", "onion", "onions", "oignon", "oignons", "بصل", "مسحوق البصل"),
+    ),
+    (
+        "Cumin",
+        "Cumin is a plant-derived spice and is halal-compatible.",
+        ("cumin", "ground cumin", "cumin en poudre", "كمون"),
+    ),
+    (
+        "Coriander",
+        "Coriander is a plant-derived spice/herb and is halal-compatible.",
+        ("coriander", "cilantro", "ground coriander", "coriandre", "كزبرة"),
+    ),
+    (
+        "Turmeric",
+        "Turmeric is a plant-derived spice and is halal-compatible.",
+        ("turmeric", "ground turmeric", "curcuma", "كركم"),
+    ),
+    (
+        "Cinnamon",
+        "Cinnamon is a plant-derived spice and is halal-compatible.",
+        ("cinnamon", "ground cinnamon", "cannelle", "قرفة"),
+    ),
+    (
+        "Nutmeg",
+        "Nutmeg is a plant-derived spice and is halal-compatible.",
+        ("nutmeg", "ground nutmeg", "noix de muscade", "جوزة الطيب"),
+    ),
+    (
+        "Ginger",
+        "Ginger is a plant-derived spice and is halal-compatible.",
+        ("ginger", "ground ginger", "fresh ginger", "gingembre", "زنجبيل"),
+    ),
+    (
+        "Allspice",
+        "Allspice is a plant-derived spice and is halal-compatible.",
+        ("allspice", "piment de la jamaïque", "بهار حلو"),
+    ),
+    # --- Common dairy (halal, source not relevant for dairy itself) ---
+    (
+        "Cheddar cheese",
+        "Cheddar cheese is a dairy product that is generally halal-compatible "
+        "(verify rennet source for strict compliance).",
+        ("cheddar cheese", "cheddar", "fromage cheddar", "جبن شيدر"),
+    ),
+    (
+        "Mozzarella cheese",
+        "Mozzarella cheese is a dairy product that is generally halal-compatible "
+        "(verify rennet source for strict compliance).",
+        ("mozzarella cheese", "mozzarella", "fromage mozzarella", "جبن موتزاريلا"),
+    ),
+    (
+        "Parmesan cheese",
+        "Parmesan is a dairy product that is generally halal-compatible "
+        "(verify rennet source for strict compliance).",
+        ("parmesan", "parmesan cheese", "parmigiano", "fromage parmesan", "جبن بارميزان"),
+    ),
+    (
+        "Cheese",
+        "Cheese is a dairy product; halal status depends on rennet source. Verify before consuming.",
+        ("cheese", "fromage", "جبن", "جبنة"),
+    ),
+    # --- Eggs ---
+    (
+        "Egg",
+        "Eggs are halal-compatible (from chickens or other permissible birds).",
+        ("egg", "eggs", "egg white", "egg whites", "egg yolk", "egg yolks",
+         "oeuf", "oeufs", "blanc d'oeuf", "jaune d'oeuf", "بيض", "بيضة"),
+    ),
+    # --- Common vegetables ---
+    (
+        "Tomato",
+        "Tomatoes are a plant-derived ingredient and are halal-compatible.",
+        ("tomato", "tomatoes", "tomato paste", "tomato sauce", "tomato purée",
+         "tomate", "tomates", "طماطم", "بندورة"),
+    ),
+    (
+        "Lemon",
+        "Lemon juice/zest is a plant-derived ingredient and is halal-compatible.",
+        ("lemon", "lemon juice", "lemon zest", "citron", "عصير الليمون", "ليمون"),
+    ),
+    (
+        "Ice-cold water",
+        "Water is a natural mineral ingredient and is halal-compatible.",
+        ("ice-cold water", "ice cold water", "cold water", "iced water"),
+    ),
 )
 
 _AMBIGUOUS_FALLBACK_GROUPS: tuple[tuple[str, IngredientHalalStatus, str, tuple[str, ...]], ...] = (
@@ -148,6 +280,49 @@ _AMBIGUOUS_FALLBACK_GROUPS: tuple[tuple[str, IngredientHalalStatus, str, tuple[s
         IngredientHalalStatus.CONDITIONAL,
         "Animal fat may be porcine (haram) or require halal slaughter verification.",
         ("animal fat", "graisse animale", "matiere grasse animale"),
+    ),
+    # --- Poultry and meat: halal status depends on slaughter method ---
+    (
+        "Chicken",
+        IngredientHalalStatus.CONDITIONAL,
+        "Chicken is halal only when slaughtered according to Islamic requirements (zabiha/dhabiha). "
+        "Verify the source and slaughter method.",
+        (
+            "chicken", "ground chicken", "minced chicken", "chicken breast", "chicken thigh",
+            "chicken thighs", "chicken wings", "chicken leg", "chicken legs",
+            "whole chicken", "chicken pieces", "chicken fillet", "chicken fillets",
+            "poulet", "poulet haché", "blanc de poulet", "دجاج", "دجاج مفروم",
+        ),
+    ),
+    (
+        "Beef",
+        IngredientHalalStatus.CONDITIONAL,
+        "Beef is halal only when slaughtered according to Islamic requirements (zabiha/dhabiha). "
+        "Verify the source and slaughter method.",
+        (
+            "beef", "ground beef", "minced beef", "beef mince", "beef steak",
+            "beef tenderloin", "beef sirloin", "boeuf", "boeuf haché", "لحم بقر", "لحم مفروم",
+        ),
+    ),
+    (
+        "Lamb",
+        IngredientHalalStatus.CONDITIONAL,
+        "Lamb is halal only when slaughtered according to Islamic requirements (zabiha/dhabiha). "
+        "Verify the source and slaughter method.",
+        (
+            "lamb", "ground lamb", "minced lamb", "lamb mince", "lamb chop", "lamb chops",
+            "agneau", "agneau haché", "لحم غنم", "لحم ضأن",
+        ),
+    ),
+    (
+        "Turkey",
+        IngredientHalalStatus.CONDITIONAL,
+        "Turkey is halal only when slaughtered according to Islamic requirements. "
+        "Verify the source and slaughter method.",
+        (
+            "turkey", "ground turkey", "minced turkey", "turkey breast",
+            "dinde", "dinde hachée", "ديك رومي",
+        ),
     ),
 )
 

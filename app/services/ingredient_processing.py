@@ -4,6 +4,9 @@ Robust ingredient extraction pipeline for HalalLens.
 Handles multi-language OCR text (EN / FR / AR), nested parentheses,
 compound ingredients, OCR digit/letter confusions and common noise.
 
+Also handles recipe images where ingredient lines start with quantities
+(e.g. "1 kg ground chicken", "1 tsp salt").
+
 SAFETY CONTRACT
 ---------------
 * Never silently change a potentially haram ingredient name to a safe-looking
@@ -52,6 +55,155 @@ _RECIPE_LINE = re.compile(
     r"preparation|préparation|method|méthode|how to|comment)\b",
     re.IGNORECASE,
 )
+
+# ---------------------------------------------------------------------------
+# Quantity / recipe-line stripping for recipe images
+# ---------------------------------------------------------------------------
+
+# Measurement units (singular + plural, common abbreviations)
+_UNITS_PATTERN = (
+    r"kg|g|gram(?:me)?s?|kilogram(?:me)?s?|lb|lbs?|pound(?:s)?|oz|ounce(?:s)?"
+    r"|ml|l|liter(?:s)?|litre(?:s)?|cl|dl"
+    r"|tsp|tbsp|teaspoon(?:s)?|tablespoon(?:s)?|cup(?:s)?|pinch(?:es)?"
+    r"|stick(?:s)?|bunch(?:es)?|handful(?:s)?|slice(?:s)?|piece(?:s)?|pack(?:age)?(?:s)?"
+    r"|inch(?:es)?|cm|mm"
+)
+
+# Leading quantity: optional number (int/fraction/decimal/range) followed by optional unit
+# Matches: "1 kg", "1/2 tsp", "180 ml", "2-3", "3 ", etc.
+_LEADING_QUANTITY_RE = re.compile(
+    r"^\s*(?:\d+(?:[.,/]\d+)?(?:\s*[-–]\s*\d+(?:[.,/]\d+)?)?\s*(?:"
+    + _UNITS_PATTERN
+    + r")?\s+)+",
+    re.IGNORECASE,
+)
+
+# Trailing preparation descriptor suffixes — "diced small", "cut in half", etc.
+# IMPORTANT: "cold" is only stripped when standalone (not part of "ice-cold water")
+_TRAILING_DESC_RE = re.compile(
+    r"\s*,?\s*(?:"
+    r"diced(?:\s+\w+)?|chopped(?:\s+\w+)?|minced|sliced(?:\s+\w+)?|grated|shredded|crushed|"
+    r"toasted|roasted|peeled|pitted|deveined|deseeded|squeezed|zested|melted|"
+    r"softened|cut\s+\w+|at\s+room\s+temperature|small|large|medium|fine|coarse|"
+    r"thin|thick|frozen|thawed|raw|"
+    r"washed|rinsed|drained|patted\s+dry|packed"
+    r")\s*$",
+    re.IGNORECASE,
+)
+
+# Ice-cold prefix — "ice-cold water" → strip "ice-cold " prefix to get "water"
+_ICE_COLD_PREFIX_RE = re.compile(r"^\s*ice[-\s]cold\s+", re.IGNORECASE)
+
+# Preparation prefixes to strip when they appear before the ingredient name
+_PREP_PREFIX_RE = re.compile(
+    r"^\s*(?:freshly\s+|finely\s+|roughly\s+|coarsely\s+|lightly\s+|thinly\s+|"
+    r"well[\s-]+)?(?:chopped|diced|minced|sliced|grated|shredded|crushed|"
+    r"toasted|roasted|peeled|pitted|deveined|deseeded|squeezed|zested|melted|"
+    r"softened)\s+",
+    re.IGNORECASE,
+)
+
+# Tokens that are purely section headings, pure quantities, or standalone units.
+# Standalone quantities: a number (possibly with fraction/range) optionally followed
+# by a unit, with nothing else after.  Examples: "180 ml", "1 tsp", "1 kg", "8".
+_PURE_QUANTITY_RE = re.compile(
+    r"^\s*\d+(?:[.,/]\d+)?(?:\s*[-–]\s*\d+(?:[.,/]\d+)?)?\s*(?:"
+    + _UNITS_PATTERN
+    + r")?\s*$",
+    re.IGNORECASE,
+)
+
+# Pure preparation-description tokens (standalone, not attached to an ingredient)
+_PURE_PREP_DESC_RE = re.compile(
+    r"^\s*(?:diced(?:\s+\w+)?|chopped(?:\s+\w+)?|minced|sliced(?:\s+\w+)?|grated|"
+    r"shredded|crushed|toasted|roasted|peeled|pitted|deveined|deseeded|squeezed|"
+    r"zested|melted|softened|cut\s+\w+|at\s+room\s+temperature|packed|drained|"
+    r"rinsed|washed|thawed|frozen|raw|patted\s+dry)\s*(?:\w+)?\s*$",
+    re.IGNORECASE,
+)
+
+# Section / structural headings
+_SECTION_HEADING_RE = re.compile(
+    r"^\s*(?:ingredients?|ingrédients?|composition|directions?|instructions?|"
+    r"preparation|method|méthode|servings?|serves?|yield|makes?)\s*$",
+    re.IGNORECASE,
+)
+
+# Recipe title heuristic: 2+ Title-Case words, no leading digit, no comma
+# AND the last word is a known protein/dish noun => treat as title, not ingredient
+_RECIPE_TITLE_PROTEIN_RE = re.compile(
+    r"^\s*(?!.*\d)(?:[A-Z][a-zA-Z]+ ){2,}[A-Z][a-zA-Z]+\s*$"
+)
+_PROTEIN_NOUNS = frozenset({
+    "sausage", "sausages", "burger", "burgers", "steak", "steaks", "roast",
+    "meatball", "meatballs", "hotdog", "hotdogs", "nuggets", "nugget",
+    "pizza", "pasta", "cake", "bread", "soup", "salad", "sauce", "loaf",
+})
+
+
+def _strip_quantity_and_prep(token: str) -> str:
+    """
+    Strip leading quantity + unit and trailing preparation descriptors from a
+    recipe ingredient line, returning just the core ingredient name.
+
+    Examples
+    --------
+    "1 kg ground chicken"              → "ground chicken"
+    "1 tsp salt"                       → "salt"
+    "1 tbsp chopped parsley"           → "parsley"
+    "180 ml ice-cold water"            → "water"
+    "150 g cheddar cheese, diced small"→ "cheddar cheese"
+    "8 Sausages"                       → "Sausages"  (kept, filtered separately)
+    """
+    # Strip leading quantity + unit
+    stripped = _LEADING_QUANTITY_RE.sub("", token).strip()
+    if not stripped:
+        return token.strip()
+
+    # Strip "ice-cold" prefix before the ingredient name (e.g. "ice-cold water" → "water")
+    candidate = _ICE_COLD_PREFIX_RE.sub("", stripped).strip()
+    if candidate:
+        stripped = candidate
+
+    # Strip trailing preparation descriptions (", diced small", ", chopped", etc.)
+    candidate = _TRAILING_DESC_RE.sub("", stripped).strip().rstrip(",").strip()
+    if candidate:
+        stripped = candidate
+
+    # Strip preparation prefixes (chopped, diced…) only when a word remains after
+    candidate = _PREP_PREFIX_RE.sub("", stripped).strip()
+    if candidate:
+        stripped = candidate
+
+    return stripped
+
+
+def _is_non_ingredient_token(token: str) -> bool:
+    """
+    Return True if the token should be discarded as a non-ingredient entry:
+    pure section heading, standalone quantity/unit, preparation description,
+    or recipe title/name.
+    """
+    t = token.strip()
+    if not t:
+        return True
+    # Section headings (e.g. "Ingredients", "Method")
+    if _SECTION_HEADING_RE.match(t):
+        return True
+    # Pure quantity or unit token (e.g. "180 ml", "1 tsp", "1 kg", "8")
+    if _PURE_QUANTITY_RE.match(t):
+        return True
+    # Pure preparation description without an ingredient (e.g. "diced small")
+    if _PURE_PREP_DESC_RE.match(t):
+        return True
+    # Heuristic: 3+ Title-Case words whose last word is a protein/dish noun
+    # e.g. "Spicy Chicken Sausage", "Cheese Chicken Sausage"
+    if _RECIPE_TITLE_PROTEIN_RE.match(t):
+        words = t.split()
+        if len(words) >= 3 and words[-1].lower() in _PROTEIN_NOUNS:
+            return True
+    return False
+
 
 # Nutritional-table noise lines
 _NUTRITIONAL_LINE = re.compile(
@@ -151,7 +303,7 @@ def _extract_ingredient_block_from_full_text(full_text: str) -> str:
             break
         if not _is_noise_line(line):
             candidate_lines.append(line)
-    return " ".join(candidate_lines).strip() or full_text
+    return "\n".join(candidate_lines).strip() or full_text
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +451,7 @@ def extract_ingredients(
     if not section_lines:
         return [], ["No readable text found in image."]
 
-    # --- Tokenise and de-duplicate ---
+    # --- Tokenise, strip quantities, and de-duplicate ---
     suggestions: list[OCRIngredientSuggestion] = []
     seen: set[str] = set()
 
@@ -308,8 +460,21 @@ def extract_ingredients(
             token = raw_token.strip(_STRIP_ITEM_PUNCT)
             if not token or _SECTION_END.search(token) or _is_noise_line(token):
                 continue
+
+            # --- Recipe-image quantity stripping ---
+            # Strip leading quantities/units and trailing preparation descriptors
+            # from each token so that "1 kg ground chicken" → "ground chicken"
+            # and "1 tsp salt" → "salt" before halal classification.
+            cleaned_token = _strip_quantity_and_prep(token)
+
+            # Discard tokens that are purely quantities, section headings,
+            # or recipe titles (e.g. "Spicy Chicken Sausage", "Ingredients").
+            if _is_non_ingredient_token(cleaned_token):
+                logger.debug("Discarding non-ingredient token %r → %r", token, cleaned_token)
+                continue
+
             # Flatten compound ingredients (e.g. "Coating (sugar, cocoa)")
-            for suggestion in _extract_sub_ingredients(token, confidence):
+            for suggestion in _extract_sub_ingredients(cleaned_token, confidence):
                 key = unicodedata.normalize("NFKC", suggestion.original_text).casefold().strip()
                 if key and key not in seen:
                     seen.add(key)
